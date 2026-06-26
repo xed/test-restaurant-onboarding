@@ -3,7 +3,6 @@ package llm
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +20,11 @@ import (
 )
 
 const defaultOpenAIBaseURL = "https://api.openai.com/v1"
+
+const (
+	openAIFilePurposeUserData = "user_data"
+	openAIFilePurposeVision   = "vision"
+)
 
 type httpDoer interface {
 	Do(req *http.Request) (*http.Response, error)
@@ -41,10 +45,9 @@ type openAIResponseInput struct {
 }
 
 type openAIResponseContentPart struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	FileID   string `json:"file_id,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
+	Type   string `json:"type"`
+	Text   string `json:"text,omitempty"`
+	FileID string `json:"file_id,omitempty"`
 }
 
 type openAIResponsesRequest struct {
@@ -128,15 +131,15 @@ func (p *openAIResponsesProvider) GenerateStructuredJSON(ctx context.Context, re
 
 	for _, file := range req.Files {
 		contentType := normalizedContentType(file)
-		if strings.HasPrefix(contentType, "image/") {
-			parts = append(parts, openAIResponseContentPart{
-				Type:     "input_image",
-				ImageURL: dataURL(contentType, file.Data),
-			})
-			continue
+		isImage := strings.HasPrefix(contentType, "image/")
+		inputType := "input_file"
+		purpose := openAIFilePurposeUserData
+		if isImage {
+			inputType = "input_image"
+			purpose = openAIFilePurposeVision
 		}
 
-		fileID, err := p.uploadUserDataFile(callCtx, file, contentType)
+		fileID, err := p.uploadFile(callCtx, file, contentType, purpose)
 		if err != nil {
 			p.logger.Error("openai file upload failed", "duration_ms", time.Since(startedAt).Milliseconds(), "error", err)
 			_ = p.deleteUploadedFiles(callCtx, uploadedFileIDs)
@@ -144,13 +147,17 @@ func (p *openAIResponsesProvider) GenerateStructuredJSON(ctx context.Context, re
 		}
 		uploadedFileIDs = append(uploadedFileIDs, fileID)
 		p.logger.Info(
-			"openai file uploaded",
+			"openai request file attached",
 			"filename", file.Filename,
 			"content_type", contentType,
 			"size_bytes", len(file.Data),
+			"input_type", inputType,
+			"delivery", "files_api_upload",
+			"purpose", purpose,
 			"file_id", fileID,
+			"is_image", isImage,
 		)
-		parts = append(parts, openAIResponseContentPart{Type: "input_file", FileID: fileID})
+		parts = append(parts, openAIResponseContentPart{Type: inputType, FileID: fileID})
 	}
 
 	raw, responseErr := p.createResponse(callCtx, parts)
@@ -176,11 +183,11 @@ func (p *openAIResponsesProvider) GenerateStructuredJSON(ctx context.Context, re
 	return raw, nil
 }
 
-func (p *openAIResponsesProvider) uploadUserDataFile(ctx context.Context, file File, contentType string) (string, error) {
+func (p *openAIResponsesProvider) uploadFile(ctx context.Context, file File, contentType string, purpose string) (string, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 
-	if err := writer.WriteField("purpose", "user_data"); err != nil {
+	if err := writer.WriteField("purpose", purpose); err != nil {
 		return "", err
 	}
 
@@ -229,9 +236,7 @@ func (p *openAIResponsesProvider) createResponse(ctx context.Context, parts []op
 			Format: openAITextFormat{Type: "json_object"},
 		},
 	}
-	if p.logger.Enabled(ctx, slog.LevelDebug) {
-		p.logger.Debug("openai responses request payload", "payload", sanitizedPayloadJSON(payload))
-	}
+	p.logger.Info("openai responses request payload", "payload", sanitizedPayloadJSON(payload))
 
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -256,7 +261,7 @@ func (p *openAIResponsesProvider) createResponse(ctx context.Context, parts []op
 	if text == "" {
 		return nil, errorsNew("openai responses response missing output text")
 	}
-	p.logger.Debug("openai responses response", "response", text, "response_len", len(text))
+	p.logger.Info("openai responses response", "response", text, "response_len", len(text))
 	return []byte(text), nil
 }
 
@@ -289,7 +294,7 @@ func (p *openAIResponsesProvider) doJSON(req *http.Request, expectedStatus int, 
 		return err
 	}
 	if resp.StatusCode != expectedStatus {
-		return fmt.Errorf("openai api returned status %d", resp.StatusCode)
+		return fmt.Errorf("openai api returned status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	if out == nil || len(bytes.TrimSpace(body)) == 0 {
 		return nil
@@ -322,10 +327,6 @@ func normalizedContentType(file File) string {
 	return contentType
 }
 
-func dataURL(contentType string, data []byte) string {
-	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(data)
-}
-
 func sanitizedPayloadJSON(payload openAIResponsesRequest) string {
 	sanitized := payload
 	sanitized.Input = make([]openAIResponseInput, len(payload.Input))
@@ -335,11 +336,6 @@ func sanitizedPayloadJSON(payload openAIResponsesRequest) string {
 			Content: make([]openAIResponseContentPart, len(input.Content)),
 		}
 		copy(sanitized.Input[inputIndex].Content, input.Content)
-		for partIndex, part := range sanitized.Input[inputIndex].Content {
-			if part.Type == "input_image" && part.ImageURL != "" {
-				sanitized.Input[inputIndex].Content[partIndex].ImageURL = "[base64 image omitted]"
-			}
-		}
 	}
 
 	data, err := json.Marshal(sanitized)

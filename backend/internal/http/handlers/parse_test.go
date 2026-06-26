@@ -292,6 +292,18 @@ func TestParseMenuServiceError(t *testing.T) {
 	assertErrorResponse(t, rec, http.StatusUnprocessableEntity, "could_not_parse")
 }
 
+func TestParseMenuUnsupportedFileType(t *testing.T) {
+	service := &mockParseService{}
+	rec := executeMultipartFilesRequest(t, NewParseHandler(service, nil), "/parse/menu", []testUpload{
+		{filename: "menu.txt", contentType: "text/plain", content: []byte("menu")},
+	})
+
+	assertErrorResponse(t, rec, http.StatusBadRequest, "unsupported_file_type")
+	if len(service.menuFiles) != 0 {
+		t.Fatalf("parse service must not be called for unsupported files, got %d files", len(service.menuFiles))
+	}
+}
+
 func TestParseMenuFileTooLarge(t *testing.T) {
 	service := &mockParseService{}
 	rec := executeMultipartFilesRequest(t, NewParseHandler(service, nil), "/parse/menu", []testUpload{

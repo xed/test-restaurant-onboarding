@@ -12,8 +12,8 @@ const (
 	defaultPort            = "8080"
 	defaultShutdownTimeout = 10 * time.Second
 	defaultReadTimeout     = 10 * time.Second
-	defaultWriteTimeout    = 30 * time.Second
-	defaultLLMTimeout      = 60 * time.Second
+	defaultWriteTimeout    = 240 * time.Second
+	defaultLLMTimeout      = 180 * time.Second
 )
 
 type Config struct {

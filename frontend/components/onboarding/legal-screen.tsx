@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { LegalForm } from "@/components/onboarding/legal-form";
+import { UploadPreparation } from "@/components/onboarding/upload-preparation";
 import { Button } from "@/components/ui/button";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { formatParseError } from "@/lib/api/error-messages";
@@ -47,6 +48,14 @@ export function LegalScreen() {
 
   return (
     <div className="grid gap-6">
+      <UploadPreparation title="Prepare the legal entity document">
+        Prepare a KBIS extract, SIRENE extract, registration certificate, or another
+        official document that identifies the restaurant entity. After upload, we
+        will extract the legal name, registration number, address, and VAT details
+        when available. You can review and correct the extracted fields before
+        continuing.
+      </UploadPreparation>
+
       <UploadDropzone
         title="Upload legal entity document"
         description="Kbis, SIRENE extract, PDF, photo, or screenshot. The document is parsed as soon as it is selected."

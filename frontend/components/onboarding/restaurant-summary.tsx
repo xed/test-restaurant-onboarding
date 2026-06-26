@@ -21,6 +21,7 @@ type MenuGroup = {
   key: string;
   title: string;
   items: MenuItem[];
+  errorCount: number;
 };
 
 const missingPlaceholder = "Not provided";
@@ -39,10 +40,18 @@ export function RestaurantSummary() {
     () => groupMenuItems(menu.menu.items),
     [menu.menu.items]
   );
+  const menuErrorCount = useMemo(
+    () =>
+      menu.menu.items.reduce(
+        (count, item) => count + getMenuItemMissingFields(item).length,
+        0
+      ),
+    [menu.menu.items]
+  );
 
   const legalReady = Boolean(legal.legal_name && (legal.siren || legal.siret));
   const bankingReady = Boolean(banking.account_holder && banking.iban && banking.bic);
-  const menuReady = menu.menu.items.some((item) => item.name && item.price);
+  const menuReady = menu.menu.items.length > 0 && menuErrorCount === 0;
 
   function toggleBlock(block: CollapsibleKey) {
     setOpenBlocks((current) => ({
@@ -100,6 +109,7 @@ export function RestaurantSummary() {
         title="Menu"
         description="Grouped menu items"
         ready={menuReady}
+        errorCount={menuErrorCount}
         isOpen={openBlocks.menu}
         onToggle={() => toggleBlock("menu")}
       >
@@ -121,9 +131,14 @@ export function RestaurantSummary() {
                     aria-expanded={groupOpen}
                   >
                     <div>
-                      <h3 className="text-base font-semibold tracking-normal">
-                        {group.title}
-                      </h3>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold tracking-normal">
+                          {group.title}
+                        </h3>
+                        {group.errorCount > 0 ? (
+                          <ErrorCountBadge count={group.errorCount} />
+                        ) : null}
+                      </div>
                       <p className="text-sm text-muted-foreground">
                         {group.items.length} item
                         {group.items.length === 1 ? "" : "s"}
@@ -140,19 +155,36 @@ export function RestaurantSummary() {
 
                   {groupOpen ? (
                     <div className="grid gap-3 border-t border-border p-4">
-                      {group.items.map((item) => (
-                        <div
-                          key={item.id}
-                          className="grid gap-3 rounded-md bg-muted/40 p-3 md:grid-cols-[1fr_1.5fr_120px]"
-                        >
-                          <ReadOnlyField label="Name" value={item.name} />
-                          <ReadOnlyField
-                            label="Description"
-                            value={item.description}
-                          />
-                          <ReadOnlyField label="Price" value={item.price} />
-                        </div>
-                      ))}
+                      {group.items.map((item) => {
+                        const missingFields = getMenuItemMissingFields(item);
+
+                        return (
+                          <div
+                            key={item.id}
+                            className={cn(
+                              "grid gap-3 rounded-md border p-3 md:grid-cols-[1fr_1.5fr_120px]",
+                              missingFields.length > 0
+                                ? "border-amber-300 bg-amber-50/50"
+                                : "border-transparent bg-muted/40"
+                            )}
+                          >
+                            <ReadOnlyField
+                              label="Name"
+                              value={item.name}
+                              required
+                            />
+                            <ReadOnlyField
+                              label="Description"
+                              value={item.description}
+                            />
+                            <ReadOnlyField
+                              label="Price"
+                              value={formatEuroPrice(item.price)}
+                              required
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
                 </section>
@@ -169,6 +201,7 @@ function SummarySection({
   title,
   description,
   ready,
+  errorCount = 0,
   isOpen,
   onToggle,
   children
@@ -176,6 +209,7 @@ function SummarySection({
   title: string;
   description: string;
   ready: boolean;
+  errorCount?: number;
   isOpen: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -184,7 +218,10 @@ function SummarySection({
     <Card>
       <CardHeader className="flex-row items-start justify-between gap-4">
         <div>
-          <CardTitle>{title}</CardTitle>
+          <div className="flex flex-wrap items-center gap-2">
+            <CardTitle>{title}</CardTitle>
+            {errorCount > 0 ? <ErrorCountBadge count={errorCount} /> : null}
+          </div>
           <CardDescription>{description}</CardDescription>
         </div>
         <div className="flex items-center gap-2">
@@ -213,14 +250,29 @@ function SummarySection({
 
 function StatusBadge({ ready }: { ready: boolean }) {
   return (
-    <div className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-sm font-medium">
-      {ready ? (
-        <CheckCircle2 className="size-4 text-primary" aria-hidden="true" />
-      ) : (
-        <AlertTriangle className="size-4 text-destructive" aria-hidden="true" />
+    <div
+      className={cn(
+        "inline-flex items-center gap-2 rounded-md border px-3 py-1.5 text-sm font-medium",
+        ready
+          ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+          : "border-amber-300 bg-amber-50 text-amber-950"
       )}
-      {ready ? "Ready" : "Couldn't parse"}
+    >
+      {ready ? (
+        <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+      ) : (
+        <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" />
+      )}
+      {ready ? "Ready" : "Not provided"}
     </div>
+  );
+}
+
+function ErrorCountBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-950">
+      {count} error{count === 1 ? "" : "s"}
+    </span>
   );
 }
 
@@ -234,19 +286,53 @@ function FieldGrid({ fields }: { fields: Array<[string, string]> }) {
   );
 }
 
-function ReadOnlyField({ label, value }: { label: string; value: string }) {
+function ReadOnlyField({
+  label,
+  value,
+  required = false
+}: {
+  label: string;
+  value: string;
+  required?: boolean;
+}) {
+  const isMissing = required && value.trim().length === 0;
+
   return (
-    <div className="rounded-md border border-border bg-muted/40 p-3">
-      <p className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
+    <div
+      className={cn(
+        "rounded-md border p-3",
+        isMissing
+          ? "border-amber-300 bg-amber-50 text-amber-950"
+          : "border-border bg-muted/40"
+      )}
+    >
+      <p
+        className={cn(
+          "text-xs font-medium uppercase tracking-normal",
+          isMissing ? "text-amber-800" : "text-muted-foreground"
+        )}
+      >
         {label}
+        {isMissing ? " required" : ""}
       </p>
       <p className="mt-2 text-sm text-foreground">
         {value.trim() || (
-          <span className="text-muted-foreground">{missingPlaceholder}</span>
+          <span className={isMissing ? "text-amber-900" : "text-muted-foreground"}>
+            {isMissing ? "Required" : missingPlaceholder}
+          </span>
         )}
       </p>
     </div>
   );
+}
+
+function formatEuroPrice(value: string) {
+  const price = value
+    .replace(/[€£$]/g, "")
+    .replace(/\bEUR\b/gi, "")
+    .trim();
+
+  return price ? `${price} EUR` : "";
 }
 
 function groupMenuItems(items: MenuItem[]): MenuGroup[] {
@@ -261,6 +347,24 @@ function groupMenuItems(items: MenuItem[]): MenuGroup[] {
   return Array.from(groups.entries()).map(([title, groupItems]) => ({
     key: title,
     title,
-    items: groupItems
+    items: groupItems,
+    errorCount: groupItems.reduce(
+      (count, item) => count + getMenuItemMissingFields(item).length,
+      0
+    )
   }));
+}
+
+function getMenuItemMissingFields(item: MenuItem) {
+  const missingFields: string[] = [];
+
+  if (item.name.trim().length === 0) {
+    missingFields.push("name");
+  }
+
+  if (item.price.trim().length === 0) {
+    missingFields.push("price");
+  }
+
+  return missingFields;
 }

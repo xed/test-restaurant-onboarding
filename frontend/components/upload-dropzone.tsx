@@ -7,7 +7,14 @@ import {
   UploadCloud,
   X
 } from "lucide-react";
-import { ChangeEvent, DragEvent, useId, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  DragEvent,
+  ReactNode,
+  useId,
+  useRef,
+  useState
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -22,6 +29,7 @@ type UploadDropzoneProps = {
   loading?: boolean;
   error?: string | null;
   files?: File[];
+  renderFileMeta?: (file: File, index: number) => ReactNode;
   onFilesChange?: (files: File[]) => void;
 };
 
@@ -34,6 +42,7 @@ export function UploadDropzone({
   loading = false,
   error,
   files,
+  renderFileMeta,
   onFilesChange
 }: UploadDropzoneProps) {
   const inputId = useId();
@@ -214,18 +223,21 @@ export function UploadDropzone({
 
         {selectedFiles.length > 0 ? (
           <div className="grid gap-2">
-            {selectedFiles.map((file) => (
+            {selectedFiles.map((file, index) => (
               <div
-                key={`${file.name}-${file.size}-${file.lastModified}`}
+                key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
                 className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted/40 p-3"
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <FileText className="size-4 shrink-0 text-muted-foreground" />
                   <span className="truncate text-sm font-medium">{file.name}</span>
                 </div>
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatFileSize(file.size)}
-                </span>
+                <div className="flex shrink-0 items-center gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    {formatFileSize(file.size)}
+                  </span>
+                  {renderFileMeta?.(file, index)}
+                </div>
               </div>
             ))}
           </div>

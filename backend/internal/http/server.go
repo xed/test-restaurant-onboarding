@@ -24,7 +24,7 @@ func NewServer(cfg config.Config, logger *slog.Logger, parseService parse.Servic
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: []string{"http://localhost:3000", "http://127.0.0.1:3000"},
+		AllowOrigins: []string{"http://localhost:3000", "http://127.0.0.1:3000", "*"},
 		AllowMethods: []string{
 			stdhttp.MethodGet,
 			stdhttp.MethodPost,

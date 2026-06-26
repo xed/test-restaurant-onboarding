@@ -161,7 +161,7 @@ func TestOpenAIResponsesProviderUploadsPDFAsInputFileAndDeletesAfterSuccess(t *t
 	}
 }
 
-func TestOpenAIResponsesProviderSendsImagesAsInputImage(t *testing.T) {
+func TestOpenAIResponsesProviderUploadsImagesAsInputImageFileID(t *testing.T) {
 	server := newOpenAITestServer(t, openAITestServerOptions{
 		responseBody: `{"output":[{"type":"message","content":[{"type":"output_text","text":"{\"ok\":true}"}]}]}`,
 	})
@@ -180,11 +180,23 @@ func TestOpenAIResponsesProviderSendsImagesAsInputImage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateStructuredJSON returned error: %v", err)
 	}
-	if len(server.uploads) != 0 {
-		t.Fatalf("expected image not to be uploaded through Files API, got %d uploads", len(server.uploads))
+	if len(server.uploads) != 1 {
+		t.Fatalf("expected image to be uploaded through Files API, got %d uploads", len(server.uploads))
 	}
-	if !server.responsesHasImageDataURL("data:image/png;base64,") {
-		t.Fatalf("expected input_image data URL, got %+v", server.responses)
+	if server.uploads[0].contentType != "image/png" {
+		t.Fatalf("expected uploaded image content type image/png, got %q", server.uploads[0].contentType)
+	}
+	if server.uploads[0].purpose != "vision" {
+		t.Fatalf("expected image upload purpose=vision, got %q", server.uploads[0].purpose)
+	}
+	if !server.responsesHasPart("input_image", "file_id", "file-test-1") {
+		t.Fatalf("expected image to be sent as input_image file_id, got %+v", server.responses)
+	}
+	if server.responsesHasPartWithKey("input_image", "image_url") {
+		t.Fatalf("image must not be sent as input_image data URL, got %+v", server.responses)
+	}
+	if got := strings.Join(server.deletes, ","); got != "file-test-1" {
+		t.Fatalf("expected uploaded image to be deleted, got %q", got)
 	}
 }
 
@@ -208,16 +220,16 @@ func TestOpenAIResponsesProviderSendsMultipleFilesInOneResponsesRequest(t *testi
 	if len(server.responses) != 1 {
 		t.Fatalf("expected one Responses API request, got %d", len(server.responses))
 	}
-	if len(server.uploads) != 2 {
-		t.Fatalf("expected two Files API uploads, got %d", len(server.uploads))
+	if len(server.uploads) != 3 {
+		t.Fatalf("expected three Files API uploads, got %d", len(server.uploads))
 	}
 	if !server.responsesHasPart("input_file", "file_id", "file-test-1") ||
 		!server.responsesHasPart("input_file", "file_id", "file-test-2") ||
-		!server.responsesHasImageDataURL("data:image/png;base64,") {
-		t.Fatalf("expected two file parts and one image part, got %+v", server.responses)
+		!server.responsesHasPart("input_image", "file_id", "file-test-3") {
+		t.Fatalf("expected PDFs as input_file and image as input_image file_id, got %+v", server.responses)
 	}
-	if got := strings.Join(server.deletes, ","); got != "file-test-1,file-test-2" {
-		t.Fatalf("expected both uploaded files to be deleted, got %q", got)
+	if got := strings.Join(server.deletes, ","); got != "file-test-1,file-test-2,file-test-3" {
+		t.Fatalf("expected all uploaded files to be deleted, got %q", got)
 	}
 }
 
@@ -268,7 +280,7 @@ func TestOpenAIResponsesProviderLogsUploadPayloadAndResponseWithoutImageBase64(t
 		responseBody: `{"output_text":"{\"legal_name\":\"KOYUKI\"}"}`,
 	})
 	var logs bytes.Buffer
-	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	logger := slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	provider := newOpenAITestProviderWithLogger(t, server.URL, logger)
 
 	_, err := provider.GenerateStructuredJSON(context.Background(), StructuredRequest{
@@ -284,11 +296,15 @@ func TestOpenAIResponsesProviderLogsUploadPayloadAndResponseWithoutImageBase64(t
 
 	got := logs.String()
 	for _, want := range []string{
-		"openai file uploaded",
+		"openai request file attached",
+		`"delivery":"files_api_upload"`,
+		`"purpose":"user_data"`,
+		`"purpose":"vision"`,
 		"file-test-1",
+		"file-test-2",
 		"openai responses request payload",
 		`\"file_id\":\"file-test-1\"`,
-		`\"image_url\":\"[base64 image omitted]\"`,
+		`\"file_id\":\"file-test-2\"`,
 		"openai responses response",
 		`{\"legal_name\":\"KOYUKI\"}`,
 	} {
@@ -296,8 +312,10 @@ func TestOpenAIResponsesProviderLogsUploadPayloadAndResponseWithoutImageBase64(t
 			t.Fatalf("expected logs to contain %q, got %s", want, got)
 		}
 	}
-	if strings.Contains(got, "data:image/png;base64,") || strings.Contains(got, "cG5nIGJ5dGVz") {
-		t.Fatalf("logs must not contain image data URL/base64, got %s", got)
+	for _, forbidden := range []string{"data:image/png;base64,", "cG5nIGJ5dGVz", "base64_data_url", "image_url"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("logs must not contain %q, got %s", forbidden, got)
+		}
 	}
 }
 
@@ -468,13 +486,15 @@ func (s *openAITestServer) responsesHasPart(partType string, key string, value s
 	return false
 }
 
-func (s *openAITestServer) responsesHasImageDataURL(prefix string) bool {
+func (s *openAITestServer) responsesHasPartWithKey(partType string, key string) bool {
 	for _, request := range s.responses {
 		for _, part := range responseContentParts(request) {
-			if part["type"] == "input_image" {
-				if imageURL, ok := part["image_url"].(string); ok && strings.HasPrefix(imageURL, prefix) {
-					return true
+			if part["type"] == partType {
+				_, ok := part[key]
+				if !ok {
+					continue
 				}
+				return true
 			}
 		}
 	}

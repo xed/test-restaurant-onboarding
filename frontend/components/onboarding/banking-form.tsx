@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import type { BankAccountParseResponse } from "@/lib/api/types";
 import { useOnboardingState } from "@/lib/onboarding-state";
+import { cn } from "@/lib/utils";
 
 const fields: Array<{
   name: keyof BankAccountParseResponse;
@@ -45,13 +46,19 @@ export function BankingForm() {
         <form className="grid gap-4 sm:grid-cols-2">
           {fields.map((field) => {
             const registration = form.register(field.name);
+            const isEmpty = state.banking[field.name].trim().length === 0;
 
             return (
               <label key={field.name} className="grid gap-2">
                 <span className="text-sm font-medium">{field.label}</span>
                 <input
                   {...registration}
-                  className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
+                  className={cn(
+                    "h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                    isEmpty
+                      ? "border-amber-300 bg-amber-50/50 focus-visible:ring-amber-400"
+                      : null
+                  )}
                   onChange={(event: ChangeEvent<HTMLInputElement>) => {
                     registration.onChange(event);
                     updateBanking({

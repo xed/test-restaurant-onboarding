@@ -17,6 +17,7 @@ import type {
   MenuParseResponse
 } from "@/lib/api/types";
 import {
+  clearOnboardingState,
   createInitialOnboardingState,
   loadOnboardingState,
   saveOnboardingState
@@ -31,8 +32,10 @@ type OnboardingStateContextValue = {
   updateBanking: (banking: Partial<BankAccountParseResponse>) => void;
   replaceBanking: (banking: BankAccountParseResponse) => void;
   replaceMenu: (menu: MenuParseResponse) => void;
+  appendMenu: (menu: MenuParseResponse) => void;
   setMenuGroups: (groups: string[]) => void;
   updateMenuItem: (id: string, item: Partial<MenuItem>) => void;
+  resetOnboarding: () => void;
 };
 
 const OnboardingStateContext = createContext<OnboardingStateContextValue | null>(
@@ -104,11 +107,38 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
         menu: {
           items: menu.menu.items.map((item, index) => ({
             ...item,
+            price: normalizePrice(item.price),
             order: item.order ?? index
           }))
         }
       }
     }));
+  }, []);
+
+  const appendMenu = useCallback((menu: MenuParseResponse) => {
+    setState((current) => {
+      const existingItems = current.menu.menu.items;
+      const usedIds = new Set(existingItems.map((item) => item.id).filter(Boolean));
+      const parsedItems = menu.menu.items.map((item, index) => ({
+        ...item,
+        id: createUniqueMenuItemId(item.id, usedIds, existingItems.length + index),
+        price: normalizePrice(item.price),
+        order: existingItems.length + index
+      }));
+
+      return {
+        ...current,
+        menu: {
+          menu: {
+            items: [...existingItems, ...parsedItems]
+          }
+        },
+        menu_groups: mergeMenuGroups(
+          current.menu_groups,
+          getParsedGroupNames(parsedItems)
+        )
+      };
+    });
   }, []);
 
   const setMenuGroups = useCallback((groups: string[]) => {
@@ -127,13 +157,24 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
             existing.id === id
               ? {
                   ...existing,
-                  ...item
+                  ...item,
+                  price:
+                    typeof item.price === "string"
+                      ? normalizePrice(item.price)
+                      : existing.price
                 }
               : existing
           )
         }
       }
     }));
+  }, []);
+
+  const resetOnboarding = useCallback(() => {
+    const initialState = createInitialOnboardingState();
+    clearOnboardingState();
+    setState(initialState);
+    saveOnboardingState(initialState);
   }, []);
 
   const value = useMemo(
@@ -145,8 +186,10 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
       updateBanking,
       replaceBanking,
       replaceMenu,
+      appendMenu,
       setMenuGroups,
-      updateMenuItem
+      updateMenuItem,
+      resetOnboarding
     }),
     [
       state,
@@ -156,8 +199,10 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
       updateBanking,
       replaceBanking,
       replaceMenu,
+      appendMenu,
       setMenuGroups,
-      updateMenuItem
+      updateMenuItem,
+      resetOnboarding
     ]
   );
 
@@ -176,4 +221,53 @@ export function useOnboardingState() {
   }
 
   return value;
+}
+
+function normalizePrice(value: string) {
+  return value.replace(/[€£$]/g, "").replace(/\bEUR\b/gi, "").trim();
+}
+
+function createUniqueMenuItemId(
+  requestedId: string,
+  usedIds: Set<string>,
+  fallbackIndex: number
+) {
+  const baseId = (requestedId.trim() || `parsed-item-${fallbackIndex + 1}`).replace(
+    /\s+/g,
+    "-"
+  );
+  let candidate = baseId;
+  let suffix = 2;
+
+  while (usedIds.has(candidate)) {
+    candidate = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+
+  usedIds.add(candidate);
+  return candidate;
+}
+
+function getParsedGroupNames(items: MenuItem[]) {
+  return Array.from(
+    new Set(
+      items
+        .map((item) => item.group_name.trim())
+        .filter((groupName) => groupName.length > 0)
+    )
+  );
+}
+
+function mergeMenuGroups(existingGroups: string[], parsedGroups: string[]) {
+  const nextGroups = [...existingGroups];
+  const existingNames = new Set(existingGroups.map((group) => group.trim()));
+
+  for (const group of parsedGroups) {
+    if (!existingNames.has(group)) {
+      nextGroups.push(group);
+      existingNames.add(group);
+    }
+  }
+
+  return nextGroups;
 }

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { BankingForm } from "@/components/onboarding/banking-form";
+import { UploadPreparation } from "@/components/onboarding/upload-preparation";
 import { Button } from "@/components/ui/button";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { formatParseError } from "@/lib/api/error-messages";
@@ -47,6 +48,12 @@ export function BankingScreen() {
 
   return (
     <div className="grid gap-6">
+      <UploadPreparation title="Prepare the banking document">
+        Prepare a RIB or bank account document. After upload, we will extract the
+        account holder, IBAN, BIC, and bank name when available. If something cannot
+        be read, you can fill the missing fields manually.
+      </UploadPreparation>
+
       <UploadDropzone
         title="Upload banking document"
         description="RIB, PDF, photo, or screenshot. The document is parsed as soon as it is selected."

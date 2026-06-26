@@ -80,6 +80,14 @@ export function saveOnboardingState(
   storage.setItem(ONBOARDING_STORAGE_KEY, JSON.stringify(normalizeState(state)));
 }
 
+export function clearOnboardingState(storage = getBrowserStorage()) {
+  if (!storage) {
+    return;
+  }
+
+  storage.removeItem(ONBOARDING_STORAGE_KEY);
+}
+
 function getBrowserStorage() {
   if (typeof window === "undefined") {
     return null;
@@ -116,7 +124,7 @@ function normalizeState(value: unknown): OnboardingState {
         items: Array.isArray(menuItems)
           ? menuItems.filter(isRecord).map((item, index) => ({
               id: normalizeString(item, "id"),
-              price: normalizeString(item, "price"),
+              price: normalizePrice(normalizeString(item, "price")),
               name: normalizeString(item, "name"),
               description: normalizeString(item, "description"),
               group_name: normalizeString(item, "group_name"),
@@ -157,6 +165,10 @@ function normalizeString(source: unknown, key: string) {
 
   const value = source[key];
   return typeof value === "string" ? value : "";
+}
+
+function normalizePrice(value: string) {
+  return value.replace(/[€£$]/g, "").replace(/\bEUR\b/gi, "").trim();
 }
 
 function getNested(source: unknown, firstKey: string, secondKey: string) {

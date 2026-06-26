@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/card";
 import type { MenuItem } from "@/lib/api/types";
 import { useOnboardingState } from "@/lib/onboarding-state";
+import { cn } from "@/lib/utils";
 
 const editableFields: Array<{
   name: keyof Pick<MenuItem, "name" | "description" | "price" | "group_name">;
@@ -62,20 +63,16 @@ export function MenuStatePanel() {
                     className="grid gap-3 rounded-md bg-muted/40 p-3 lg:grid-cols-4"
                   >
                     {editableFields.map((field) => (
-                      <label key={field.name} className="grid gap-2">
-                        <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
-                          {field.label}
-                        </span>
-                        <input
-                          value={item[field.name]}
-                          className="h-10 rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring"
-                          onChange={(event: ChangeEvent<HTMLInputElement>) =>
-                            updateMenuItem(item.id, {
-                              [field.name]: event.target.value
-                            })
-                          }
-                        />
-                      </label>
+                      <MenuStateInput
+                        key={field.name}
+                        item={item}
+                        field={field}
+                        onChange={(value) =>
+                          updateMenuItem(item.id, {
+                            [field.name]: value
+                          })
+                        }
+                      />
                     ))}
                   </div>
                 ))}
@@ -86,6 +83,61 @@ export function MenuStatePanel() {
       </CardContent>
     </Card>
   );
+}
+
+function MenuStateInput({
+  item,
+  field,
+  onChange
+}: {
+  item: MenuItem;
+  field: (typeof editableFields)[number];
+  onChange: (value: string) => void;
+}) {
+  const value = item[field.name];
+  const displayValue = field.name === "price" ? sanitizePriceValue(value) : value;
+  const isEmpty =
+    field.name !== "description" && displayValue.trim().length === 0;
+  const inputClassName = cn(
+    "h-10 w-full rounded-md border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+    isEmpty ? "border-amber-300 bg-amber-50/50 focus-visible:ring-amber-400" : null,
+    field.name === "price" ? "pr-9" : null
+  );
+
+  return (
+    <label className="grid gap-2">
+      <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
+        {field.label}
+      </span>
+      {field.name === "price" ? (
+        <span className="relative">
+          <input
+            value={displayValue}
+            inputMode="decimal"
+            className={inputClassName}
+            onChange={(event: ChangeEvent<HTMLInputElement>) =>
+              onChange(sanitizePriceValue(event.target.value))
+            }
+          />
+          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-muted-foreground">
+            EUR
+          </span>
+        </span>
+      ) : (
+        <input
+          value={displayValue}
+          className={inputClassName}
+          onChange={(event: ChangeEvent<HTMLInputElement>) =>
+            onChange(event.target.value)
+          }
+        />
+      )}
+    </label>
+  );
+}
+
+function sanitizePriceValue(value: string) {
+  return value.replace(/[€£$]/g, "").replace(/\bEUR\b/gi, "").trimStart();
 }
 
 function groupMenuItems(items: MenuItem[]) {

@@ -141,6 +141,15 @@ func (h *ParseHandler) ParseMenu(c echo.Context) error {
 		})
 	}
 
+	for _, file := range files {
+		if !isPDFOrImage(file) {
+			return c.JSON(http.StatusBadRequest, api.ParseErrorResponse{
+				Error:   "unsupported_file_type",
+				Message: "files must be PDFs or images",
+			})
+		}
+	}
+
 	out, err := h.service.ParseMenu(c.Request().Context(), files)
 	if err != nil {
 		if h.logger != nil {
