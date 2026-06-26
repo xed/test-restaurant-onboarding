@@ -3,8 +3,6 @@ services:
     build:
       context: ../backend
       dockerfile: Dockerfile
-    working_dir: /app
-    command: go run ./cmd/server
     environment:
       PORT: "8080"
       LOG_LEVEL: ${LOG_LEVEL:-info}
