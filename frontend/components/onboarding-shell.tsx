@@ -14,7 +14,8 @@ export function OnboardingShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const nextStep = getNextStep(pathname);
-  const { resetOnboarding, setCurrentStep } = useOnboardingState();
+  const { isNavigationLocked, resetOnboarding, setCurrentStep } =
+    useOnboardingState();
 
   useEffect(() => {
     const step = onboardingSteps.find((item) => item.href === pathname);
@@ -46,7 +47,12 @@ export function OnboardingShell({ children }: { children: ReactNode }) {
                 <RotateCcw className="size-4" aria-hidden="true" />
                 Reset Form
               </Button>
-              {nextStep ? (
+              {nextStep && isNavigationLocked ? (
+                <Button type="button" disabled>
+                  Next
+                  <ChevronRight className="size-4" aria-hidden="true" />
+                </Button>
+              ) : nextStep ? (
                 <Button asChild>
                   <Link href={nextStep.href}>
                     Next
@@ -61,7 +67,7 @@ export function OnboardingShell({ children }: { children: ReactNode }) {
             </div>
           </div>
 
-          <OnboardingSteps pathname={pathname} />
+          <OnboardingSteps pathname={pathname} disabled={isNavigationLocked} />
         </div>
       </header>
 

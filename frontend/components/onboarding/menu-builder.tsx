@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, useMemo, useState } from "react";
-import { GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -20,6 +20,12 @@ type MenuGroup = {
   title: string;
   items: MenuItem[];
   isUngrouped: boolean;
+  warningCount: number;
+};
+
+type WarningTarget = {
+  id: string;
+  groupKey: string;
 };
 
 const editableFields: Array<{
@@ -35,6 +41,8 @@ const addButtonClassName =
   "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 hover:text-emerald-800";
 const deleteButtonClassName =
   "border-red-500/40 bg-red-500/10 text-red-700 hover:bg-red-500/15 hover:text-red-800";
+const warningButtonClassName =
+  "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 hover:text-amber-950";
 
 export function MenuBuilder() {
   const {
@@ -50,10 +58,18 @@ export function MenuBuilder() {
   } = useOnboardingState();
   const [newGroupName, setNewGroupName] = useState("");
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [activeWarningIndex, setActiveWarningIndex] = useState(0);
   const groups = useMemo(
     () => buildGroups(items, menuGroups),
     [items, menuGroups]
   );
+  const warningCount = useMemo(
+    () =>
+      items.reduce((count, item) => count + getMenuItemMissingFields(item).length, 0),
+    [items]
+  );
+  const warningTargets = useMemo(() => getWarningTargets(groups), [groups]);
 
   function commitItems(nextItems: MenuItem[]) {
     replaceMenu({
@@ -180,14 +196,60 @@ export function MenuBuilder() {
     setDraggedItemId(null);
   }
 
+  function toggleGroup(groupKey: string) {
+    setOpenGroups((current) => ({
+      ...current,
+      [groupKey]: !(current[groupKey] ?? true)
+    }));
+  }
+
+  function handleGoToNextWarning() {
+    if (warningTargets.length === 0) {
+      return;
+    }
+
+    const targetIndex = activeWarningIndex % warningTargets.length;
+    const target = warningTargets[targetIndex];
+
+    setOpenGroups((current) => ({
+      ...current,
+      [target.groupKey]: true
+    }));
+    setActiveWarningIndex((targetIndex + 1) % warningTargets.length);
+
+    requestAnimationFrame(() => {
+      const element = document.getElementById(target.id);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = element?.querySelector<HTMLInputElement>("[data-warning-input]");
+      input?.focus({ preventScroll: true });
+    });
+  }
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Menu builder</CardTitle>
-        <CardDescription>
-          Group parsed items, fix fields, add missing items, and drag items between
-          groups.
-        </CardDescription>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <CardTitle>Menu builder</CardTitle>
+            </div>
+            <CardDescription>
+              Group parsed items, fix fields, add missing items, and drag items
+              between groups.
+            </CardDescription>
+          </div>
+          {warningCount > 0 ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className={warningButtonClassName}
+              onClick={handleGoToNextWarning}
+            >
+              Next warning ({warningCount})
+            </Button>
+          ) : null}
+        </div>
       </CardHeader>
       <CardContent className="grid gap-5">
         <div className="flex flex-col gap-2 sm:flex-row">
@@ -230,114 +292,158 @@ export function MenuBuilder() {
           </div>
         ) : (
           <div className="grid gap-4">
-            {groups.map((group) => (
-              <section
-                key={group.key || "ungrouped"}
-                className="rounded-md border border-border"
-                onDragOver={(event) => event.preventDefault()}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  handleDropOnGroup(group.key);
-                }}
-              >
-                <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="grid min-w-0 gap-1">
-                    <GroupNameInput
-                      group={group}
-                      onCommit={(nextName) =>
-                        handleRenameGroup(group.key, nextName)
-                      }
-                    />
-                    <p className="text-sm text-muted-foreground">
-                      {group.items.length} item{group.items.length === 1 ? "" : "s"}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={addButtonClassName}
-                      onClick={() => handleAddItem(group.key)}
-                    >
-                      <Plus className="size-4" aria-hidden="true" />
-                      Item
-                    </Button>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="outline"
-                      className={deleteButtonClassName}
-                      onClick={() => handleDeleteGroup(group.key)}
-                    >
-                      <Trash2 className="size-4" aria-hidden="true" />
-                      Group
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid gap-3 p-4">
-                  {group.items.length === 0 ? (
-                    <div className="rounded-md border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
-                      Drop items here or add a new item.
-                    </div>
-                  ) : (
-                    group.items.map((item) => (
-                      <div
-                        key={item.id}
-                        draggable
-                        className={cn(
-                          "grid gap-3 rounded-md border border-border bg-muted/40 p-3",
-                          draggedItemId === item.id ? "opacity-50" : null
-                        )}
-                        onDragStart={() => setDraggedItemId(item.id)}
-                        onDragEnd={() => setDraggedItemId(null)}
-                        onDragOver={(event) => event.preventDefault()}
-                        onDrop={(event) => {
-                          event.preventDefault();
-                          event.stopPropagation();
-                          handleDropOnItem(item.id);
-                        }}
-                      >
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
-                            <GripVertical
-                              className="size-4 shrink-0"
-                              aria-hidden="true"
-                            />
-                            <span className="truncate">
-                              Drag to reorder or move groups
-                            </span>
-                          </div>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            className={deleteButtonClassName}
-                            onClick={() => handleDeleteItem(item.id)}
-                          >
-                            <Trash2 className="size-4" aria-hidden="true" />
-                          </Button>
-                        </div>
-                        <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_140px]">
-                          {editableFields.map((field) => (
-                            <MenuItemInput
-                              key={field.name}
-                              item={item}
-                              field={field}
-                              onChange={(value) =>
-                                updateMenuItem(item.id, {
-                                  [field.name]: value
-                                } as Partial<MenuItem>)
-                              }
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    ))
+            {groups.map((group) => {
+              const groupOpen = openGroups[group.key] ?? true;
+
+              return (
+                <section
+                  key={group.key || "ungrouped"}
+                  className={cn(
+                    "rounded-md border",
+                    group.warningCount > 0
+                      ? "border-amber-300 bg-amber-50/30"
+                      : "border-border"
                   )}
-                </div>
-              </section>
-            ))}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    handleDropOnGroup(group.key);
+                  }}
+                >
+                  <div className="flex flex-col gap-3 border-b border-border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="grid min-w-0 gap-1">
+                      <GroupNameInput
+                        group={group}
+                        onCommit={(nextName) =>
+                          handleRenameGroup(group.key, nextName)
+                        }
+                      />
+                      <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                        <span>
+                          {group.items.length} item
+                          {group.items.length === 1 ? "" : "s"}
+                        </span>
+                        {group.warningCount > 0 ? (
+                          <WarningCountBadge count={group.warningCount} />
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => toggleGroup(group.key)}
+                        aria-expanded={groupOpen}
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "size-4 transition-transform",
+                            groupOpen ? "rotate-180" : null
+                          )}
+                          aria-hidden="true"
+                        />
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={addButtonClassName}
+                        onClick={() => handleAddItem(group.key)}
+                      >
+                        <Plus className="size-4" aria-hidden="true" />
+                        Item
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className={deleteButtonClassName}
+                        onClick={() => handleDeleteGroup(group.key)}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                        Group
+                      </Button>
+                    </div>
+                  </div>
+                  {groupOpen ? (
+                    <div className="grid gap-3 p-4">
+                      {group.items.length === 0 ? (
+                        <div className="rounded-md border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
+                          Drop items here or add a new item.
+                        </div>
+                      ) : (
+                        group.items.map((item) => {
+                          const itemWarningCount = getMenuItemMissingFields(item).length;
+
+                          return (
+                            <div
+                              id={getWarningTargetId(item.id)}
+                              key={item.id}
+                              draggable
+                              className={cn(
+                                "grid gap-3 rounded-md border p-3",
+                                itemWarningCount > 0
+                                  ? "border-amber-300 bg-amber-50/50"
+                                  : "border-border bg-muted/40",
+                                draggedItemId === item.id ? "opacity-50" : null
+                              )}
+                              onDragStart={() => setDraggedItemId(item.id)}
+                              onDragEnd={() => setDraggedItemId(null)}
+                              onDragOver={(event) => event.preventDefault()}
+                              onDrop={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                handleDropOnItem(item.id);
+                              }}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-muted-foreground">
+                                  <GripVertical
+                                    className="size-4 shrink-0"
+                                    aria-hidden="true"
+                                  />
+                                  <span className="truncate">
+                                    Drag to reorder or move groups
+                                  </span>
+                                  {itemWarningCount > 0 ? (
+                                    <WarningCountBadge count={itemWarningCount} />
+                                  ) : null}
+                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className={deleteButtonClassName}
+                                  onClick={() => handleDeleteItem(item.id)}
+                                >
+                                  <Trash2 className="size-4" aria-hidden="true" />
+                                </Button>
+                              </div>
+                              <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr_140px]">
+                                {editableFields.map((field) => (
+                                  <MenuItemInput
+                                    key={field.name}
+                                    item={item}
+                                    field={field}
+                                    warningInput={isRequiredFieldMissing(item, field.name)}
+                                    onChange={(value) =>
+                                      updateMenuItem(item.id, {
+                                        [field.name]: value
+                                      } as Partial<MenuItem>)
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
         )}
       </CardContent>
@@ -348,10 +454,12 @@ export function MenuBuilder() {
 function MenuItemInput({
   item,
   field,
+  warningInput,
   onChange
 }: {
   item: MenuItem;
   field: (typeof editableFields)[number];
+  warningInput: boolean;
   onChange: (value: string) => void;
 }) {
   const value = item[field.name];
@@ -368,6 +476,7 @@ function MenuItemInput({
     <label className="grid gap-2">
       <span className="text-xs font-medium uppercase tracking-normal text-muted-foreground">
         {field.label}
+        {isEmpty ? " Warning" : ""}
       </span>
       {field.name === "price" ? (
         <span className="relative">
@@ -375,6 +484,7 @@ function MenuItemInput({
             value={displayValue}
             inputMode="decimal"
             className={inputClassName}
+            data-warning-input={warningInput ? "true" : undefined}
             onChange={(event: ChangeEvent<HTMLInputElement>) =>
               onChange(sanitizePriceValue(event.target.value))
             }
@@ -387,12 +497,21 @@ function MenuItemInput({
         <input
           value={displayValue}
           className={inputClassName}
+          data-warning-input={warningInput ? "true" : undefined}
           onChange={(event: ChangeEvent<HTMLInputElement>) =>
             onChange(event.target.value)
           }
         />
       )}
     </label>
+  );
+}
+
+function WarningCountBadge({ count }: { count: number }) {
+  return (
+    <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-950">
+      {count} warning{count === 1 ? "" : "s"}
+    </span>
   );
 }
 
@@ -458,7 +577,10 @@ function buildGroups(items: MenuItem[], menuGroups: string[]): MenuGroup[] {
     key: groupName,
     title: groupName,
     isUngrouped: false,
-    items: sortedItems.filter((item) => item.group_name === groupName)
+    items: sortedItems.filter((item) => item.group_name === groupName),
+    warningCount: sortedItems
+      .filter((item) => item.group_name === groupName)
+      .reduce((count, item) => count + getMenuItemMissingFields(item).length, 0)
   }));
 
   if (ungroupedItems.length > 0) {
@@ -466,7 +588,11 @@ function buildGroups(items: MenuItem[], menuGroups: string[]): MenuGroup[] {
       key: "",
       title: "Ungrouped",
       isUngrouped: true,
-      items: ungroupedItems
+      items: ungroupedItems,
+      warningCount: ungroupedItems.reduce(
+        (count, item) => count + getMenuItemMissingFields(item).length,
+        0
+      )
     });
   }
 
@@ -502,4 +628,43 @@ function createMenuItemId() {
   }
 
   return `item-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getMenuItemMissingFields(item: MenuItem) {
+  const missingFields: string[] = [];
+
+  if (item.name.trim().length === 0) {
+    missingFields.push("name");
+  }
+
+  if (item.price.trim().length === 0) {
+    missingFields.push("price");
+  }
+
+  return missingFields;
+}
+
+function getWarningTargets(groups: MenuGroup[]): WarningTarget[] {
+  return groups.flatMap((group) =>
+    group.items
+      .filter((item) => getMenuItemMissingFields(item).length > 0)
+      .map((item) => ({
+        id: getWarningTargetId(item.id),
+        groupKey: group.key
+      }))
+  );
+}
+
+function getWarningTargetId(itemId: string) {
+  return `menu-warning-${itemId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function isRequiredFieldMissing(
+  item: MenuItem,
+  fieldName: keyof Pick<MenuItem, "name" | "description" | "price">
+) {
+  return (
+    (fieldName === "name" || fieldName === "price") &&
+    item[fieldName].trim().length === 0
+  );
 }

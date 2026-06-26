@@ -1,49 +1,172 @@
-Привет!
+# Структура проекта
 
-Хочу коротко пояснить, почему в тестовом задании я пришел именно к таким решениям, и что бы я улучшал дальше.
+```text
+.
+├── backend/                  # Go backend service
+│   ├── cmd/server/            # точка входа HTTP-сервера
+│   ├── internal/api/          # API response/error models
+│   ├── internal/config/       # чтение env-конфигурации
+│   ├── internal/http/         # Echo server, routes, handlers
+│   ├── internal/llm/          # абстракция LLM-провайдера и OpenAI Responses flow
+│   ├── internal/parse/        # сервис парсинга документов
+│   └── internal/prompts/      # prompt templates для legal/banking/menu
+├── frontend/                 # Next.js onboarding UI
+│   ├── app/                   # App Router routes: legal, banking, menu, restaurant
+│   ├── components/            # UI и onboarding components
+│   └── lib/                   # API client, React Query mutations, localStorage state
+├── .deploy/
+│   ├── docker-compose.local.yml
+│   └── .env.example
+├── .context/                 # локальная память проекта
+├── TASK.md                   # исходное тестовое задание
+└── backlog.md                # план реализации
+```
 
-# Backend 
-я писал на Go, потому что для меня это самый быстрый и надежный вариант для такого сервиса.
-В качестве LLM-провайдера по умолчанию использовал OpenAI, но оставил возможность переключения на Anthropic через абстракцию провайдера.
+# Переменные окружения
 
-По обработке PDF сначала рассматривал несколько вариантов: извлечение текста стандартными средствами, подключение OCR через Tesseract, либо отдельный сервис для конвертации PDF в Markdown, например Docling.
-Но я не стал добавлять отдельный контейнер или OCR-пайплайн, потому что для тестового задания это заметно усложнило бы приложение.
+Шаблон локальных переменных лежит в `.deploy/.env.example`.
 
-Я также проверил вариант с локальным извлечением текста из PDF и отправкой уже текста в LLM, чтобы удешевить обработку. 
-На практике результат оказался хуже: LLM лучше справлялась, когда работала с документом напрямую. Поэтому для OpenAI я сделал обработку через Files API / Responses API, чтобы PDF можно было передавать как файл.
+Для запуска через Docker Compose скопируй его в `.deploy/.env`:
 
-Базу данных я сознательно не подключал, потому что в техническом задании это не требовалось.
-В production-версии я бы сохранял состояние каждого шага в БД, а также логировал бы все обращения к LLM: входные/выходные токены, стоимость, длительность запроса, статус обработки и ошибки. Это дало бы нормальную аналитику, аудит и возможность разбирать проблемные кейсы.
+```bash
+cp .deploy/.env.example .deploy/.env
+```
 
-Промпты я сделал достаточно простыми: попросил проанализировать документ и вернуть строгий JSON в нужном формате.
-Понятно, что промпты критически важны, и в реальном проекте я бы отдельно дорабатывал их на наборе тестовых документов, добавлял больше edge cases и проверял стабильность результата.
+Минимально для реального парсинга через OpenAI нужно заполнить:
 
-Большие файлы LLM действительно обрабатывает дольше, но для текущего задания я посчитал, что обычного loader / upload flow будет достаточно.
-Оптимизацию больших документов, чанкинг, предварительную классификацию страниц и более сложный пайплайн я бы добавлял уже после появления реальных данных и понятных ограничений по стоимости/скорости.
+```env
+LLM_PROVIDER=openai
+OPENAI_API_KEY=...
+OPENAI_MODEL=gpt-5
+OPENAI_BASE_URL=https://api.openai.com/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+```
 
-# Frontend
-я сделал на Next.js. Выбрал его, потому что он более универсален, чем обычный React SPA, дает хорошую структуру проекта, роутинг, удобную работу с формами и в будущем проще масштабируется, если потребуется SSR, API routes или более сложная админская часть.
+Если нужен Anthropic, переключи провайдера и заполни Anthropic-переменные:
 
-Отдельно добавил навигацию по шагам onboarding.
-Пользователь может в любой момент вернуться на предыдущий шаг, проверить данные и внести изменения.
-SIREN/SIRET - если хоть один из них распознался то считаю что это не ошибка 
+```env
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...
+ANTHROPIC_MODEL=...
+ANTHROPIC_BASE_URL=
+```
 
-Также я оставил редактирование на первом и втором шагах после парсинга документов.
-Это важно, потому что LLM/OCR-парсинг не всегда будет идеальным: если документ распарсился частично или с ошибками, пользователь все равно может вручную исправить значения и продолжить процесс.
+Также в `.deploy/.env.example` есть backend timeouts:
 
+- `LLM_TIMEOUT` - общий timeout LLM-запроса, по умолчанию `180s`;
+- `READ_TIMEOUT` - HTTP read timeout, по умолчанию `10s`;
+- `WRITE_TIMEOUT` - HTTP write timeout, по умолчанию `240s`;
+- `LOG_LEVEL` - уровень логирования, по умолчанию `info`.
 
-На четвертом шаге логично было бы добавить кнопку Save / Submit, но я сознательно не стал этого делать.
-В техническом задании не было описано, Поэтому я оставил четвертый шаг как read-only summary.
-Мне показалось, что неработающая или fake-кнопка могла бы больше смутить интервьюеров.
+Секреты не нужно коммитить. `.deploy/.env.example` хранит только пустые placeholders и безопасные defaults.
 
+# Локальный запуск через Docker Compose
 
+Основной способ локального запуска - `.deploy/docker-compose.local.yml`.
 
-Если бы продолжал развивать проект дальше, я бы в первую очередь добавил:
-- базу данных для сохранения прогресса onboarding;
-- историю запросов к LLM и учет стоимости;
-- более сильную валидацию и нормализацию распарсенных данных;
-- набор тестовых документов для проверки качества парсинга;
-- полноценную обработку больших PDF;
-- более продуманные промпты и fallback-сценарии, когда модель возвращает неполные данные.
+```bash
+cp .deploy/.env.example .deploy/.env
+# заполни OPENAI_API_KEY или переменные другого провайдера
 
-todo: при ощибке загрузке файлов в legal/bank - как то подсветить
+docker compose --env-file .deploy/.env -f .deploy/docker-compose.local.yml up --build
+```
+
+После старта:
+
+- frontend: http://localhost:3000
+- backend healthcheck: http://localhost:8080/health
+- backend API base URL для браузера: `http://localhost:8080`
+
+Compose поднимает два сервиса:
+
+- `backend` - собирается из `backend/Dockerfile`, target `dev`, запускает `go run ./cmd/server`, слушает порт `8080`;
+- `frontend` - собирается из `frontend/Dockerfile`, target `dev`, запускает `npm run dev -- --hostname 0.0.0.0`, слушает порт `3000`.
+
+Исходники `backend/` и `frontend/` bind-mounted внутрь контейнеров, поэтому изменения кода доступны без пересборки образа. Если меняются зависимости или Dockerfile, перезапусти compose с `--build`.
+
+Остановить локальную инфраструктуру:
+
+```bash
+docker compose --env-file .deploy/.env -f .deploy/docker-compose.local.yml down
+```
+
+# Запуск без Docker
+
+Backend:
+
+```bash
+cd backend
+export PORT=8080
+export LOG_LEVEL=info
+export LLM_PROVIDER=openai
+export LLM_TIMEOUT=180s
+export WRITE_TIMEOUT=240s
+export OPENAI_API_KEY=...
+export OPENAI_MODEL=gpt-5
+export OPENAI_BASE_URL=https://api.openai.com/v1
+go run ./cmd/server
+```
+
+Frontend:
+
+```bash
+cd frontend
+npm install
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8080 npm run dev
+```
+
+Проверки:
+
+```bash
+cd backend
+go test ./...
+
+cd ../frontend
+npm run typecheck
+npm run lint
+npm run build
+```
+
+# API
+
+Backend предоставляет:
+
+- `GET /health` - проверка работоспособности сервиса;
+- `POST /parse/legal` - multipart upload legal document, поле `file`;
+- `POST /parse/bank_account` - multipart upload RIB/bank document, поле `file`;
+- `POST /parse/menu` - multipart upload menu files, поле `files[]`.
+
+Поддерживаемые документы для парсинга: PDF и изображения. Ответы возвращаются в JSON, ошибки парсинга приводятся к контролируемому `could_not_parse`, а клиентские ошибки загрузки возвращаются отдельными error codes.
+
+# Развертывание
+
+В репозитории есть Dockerfile для backend и frontend с production-capable `runner` stages.
+
+Backend production image:
+
+```bash
+docker build -t restaurant-onboarding-backend:latest --target runner ./backend
+```
+
+Frontend production image:
+
+```bash
+docker build \
+  -t restaurant-onboarding-frontend:latest \
+  --target runner \
+  --build-arg NEXT_PUBLIC_API_BASE_URL=https://your-backend.example.com \
+  ./frontend
+```
+
+Для production окружения нужно передать backend-переменные окружения на уровне платформы деплоя:
+
+- `PORT`
+- `LOG_LEVEL`
+- `LLM_PROVIDER`
+- `LLM_TIMEOUT`
+- `READ_TIMEOUT`
+- `WRITE_TIMEOUT`
+- `OPENAI_API_KEY` / `OPENAI_MODEL` / `OPENAI_BASE_URL`
+- или `ANTHROPIC_API_KEY` / `ANTHROPIC_MODEL` / `ANTHROPIC_BASE_URL`
+
+Frontend должен быть собран с корректным `NEXT_PUBLIC_API_BASE_URL`, потому что это публичная browser-side переменная Next.js.

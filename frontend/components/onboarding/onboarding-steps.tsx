@@ -13,9 +13,10 @@ type StepFillStatus = "empty" | "partial" | "complete";
 
 type OnboardingStepsProps = {
   pathname: string;
+  disabled?: boolean;
 };
 
-export function OnboardingSteps({ pathname }: OnboardingStepsProps) {
+export function OnboardingSteps({ pathname, disabled = false }: OnboardingStepsProps) {
   const { state } = useOnboardingState();
   const statuses = getStepStatuses(state);
 
@@ -35,9 +36,12 @@ export function OnboardingSteps({ pathname }: OnboardingStepsProps) {
                   getStepClassName(status),
                   isActive
                     ? "border-primary shadow-sm ring-1 ring-primary/30 after:absolute after:inset-x-2 after:-bottom-1 after:h-0.5 after:rounded-full after:bg-primary"
-                    : null
+                    : null,
+                  disabled ? "pointer-events-none opacity-50" : null
                 )}
                 aria-current={isActive ? "step" : undefined}
+                aria-disabled={disabled}
+                tabIndex={disabled ? -1 : undefined}
               >
                 <span
                   className={cn(

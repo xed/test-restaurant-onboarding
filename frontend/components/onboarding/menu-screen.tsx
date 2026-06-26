@@ -8,9 +8,10 @@ import {
   XCircle
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { MenuBuilder } from "@/components/onboarding/menu-builder";
+import { ScrollToTopButton } from "@/components/onboarding/scroll-to-top-button";
 import { UploadPreparation } from "@/components/onboarding/upload-preparation";
 import { Button } from "@/components/ui/button";
 import { UploadDropzone } from "@/components/upload-dropzone";
@@ -29,7 +30,13 @@ type MenuFileUpload = {
 
 export function MenuScreen() {
   const router = useRouter();
-  const { state, appendMenu, replaceMenu, setCurrentStep } = useOnboardingState();
+  const {
+    state,
+    appendMenu,
+    replaceMenu,
+    setCurrentStep,
+    setNavigationLocked
+  } = useOnboardingState();
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [fileUploads, setFileUploads] = useState<MenuFileUpload[]>([]);
   const [isParsing, setIsParsing] = useState(false);
@@ -38,10 +45,13 @@ export function MenuScreen() {
   const hasAddedItems = fileUploads.some(
     (upload) => upload.status === "success" && (upload.itemCount ?? 0) > 0
   );
-  const hasEmptySuccessfulUploads = fileUploads.some(
-    (upload) => upload.status === "success" && upload.itemCount === 0
-  );
   const failedUploads = fileUploads.filter((upload) => upload.status === "error");
+
+  useEffect(() => {
+    setNavigationLocked(isParsing);
+
+    return () => setNavigationLocked(false);
+  }, [isParsing, setNavigationLocked]);
 
   function handleFilesChange(files: File[]) {
     const nextUploads = files.map((file, index) => ({
@@ -79,17 +89,25 @@ export function MenuScreen() {
             return;
           }
 
+          if (response.menu.items.length === 0) {
+            setFileUploads((current) =>
+              updateFileUpload(current, uploadKey, {
+                status: "error",
+                itemCount: 0,
+                message: "No items found"
+              })
+            );
+            return;
+          }
+
           appendMenu(response);
           setFileUploads((current) =>
             updateFileUpload(current, uploadKey, {
               status: "success",
               itemCount: response.menu.items.length,
-              message:
-                response.menu.items.length > 0
-                  ? `${response.menu.items.length} item${
-                      response.menu.items.length === 1 ? "" : "s"
-                    } added`
-                  : "No items found"
+              message: `${response.menu.items.length} item${
+                response.menu.items.length === 1 ? "" : "s"
+              } added`
             })
           );
         } catch (error) {
@@ -145,6 +163,13 @@ export function MenuScreen() {
         mode="multiple"
         files={selectedFiles}
         loading={isParsing}
+        getFileClassName={(file, index) => {
+          const upload = fileUploads.find(
+            (item) => item.key === getFileKey(file, index)
+          );
+
+          return getFileUploadClassName(upload);
+        }}
         renderFileMeta={(file, index) => {
           const upload = fileUploads.find(
             (item) => item.key === getFileKey(file, index)
@@ -155,13 +180,12 @@ export function MenuScreen() {
         onFilesChange={handleFilesChange}
       />
 
-      {hasAddedItems || hasEmptySuccessfulUploads ? (
+      {hasAddedItems ? (
         <div className="flex items-start gap-2 rounded-md border border-primary/30 bg-primary/10 p-3 text-sm text-primary">
           <CheckCircle2 className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
           <span>
-            {hasAddedItems
-              ? "Parsed menu items are being added as each file completes. Review groups and edit items below."
-              : "No menu items were found in the completed files. Upload another file or build the menu manually below."}
+            Parsed menu items are being added as each file completes. Review groups
+            and edit items below.
           </span>
         </div>
       ) : null}
@@ -182,11 +206,13 @@ export function MenuScreen() {
       <MenuBuilder />
 
       <div className="flex justify-end">
-        <Button type="button" onClick={handleNext}>
+        <Button type="button" disabled={isParsing} onClick={handleNext}>
           Next
           <ChevronRight className="size-4" aria-hidden="true" />
         </Button>
       </div>
+
+      <ScrollToTopButton />
     </div>
   );
 }
@@ -218,14 +244,14 @@ function renderFileUploadStatus(upload?: MenuFileUpload) {
   switch (upload.status) {
     case "uploading":
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+        <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
           <Loader2 className="size-3 animate-spin" aria-hidden="true" />
           Parsing
         </span>
       );
     case "success":
       return (
-        <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-1 text-xs font-medium text-primary">
+        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800">
           <CheckCircle2 className="size-3" aria-hidden="true" />
           {upload.message ?? "Done"}
         </span>
@@ -237,9 +263,22 @@ function renderFileUploadStatus(upload?: MenuFileUpload) {
           title={upload.message}
         >
           <XCircle className="size-3 shrink-0" aria-hidden="true" />
-          <span className="truncate">Failed</span>
+          <span className="truncate">{upload.message ?? "Failed"}</span>
         </span>
       );
+  }
+}
+
+function getFileUploadClassName(upload?: MenuFileUpload) {
+  switch (upload?.status) {
+    case "uploading":
+      return "border-amber-300 bg-amber-50";
+    case "success":
+      return "border-emerald-300 bg-emerald-50";
+    case "error":
+      return "border-destructive/40 bg-destructive/10";
+    default:
+      return undefined;
   }
 }
 

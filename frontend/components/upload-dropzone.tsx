@@ -29,6 +29,7 @@ type UploadDropzoneProps = {
   loading?: boolean;
   error?: string | null;
   files?: File[];
+  getFileClassName?: (file: File, index: number) => string | undefined;
   renderFileMeta?: (file: File, index: number) => ReactNode;
   onFilesChange?: (files: File[]) => void;
 };
@@ -42,6 +43,7 @@ export function UploadDropzone({
   loading = false,
   error,
   files,
+  getFileClassName,
   renderFileMeta,
   onFilesChange
 }: UploadDropzoneProps) {
@@ -226,7 +228,10 @@ export function UploadDropzone({
             {selectedFiles.map((file, index) => (
               <div
                 key={`${file.name}-${file.size}-${file.lastModified}-${index}`}
-                className="flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted/40 p-3"
+                className={cn(
+                  "flex min-w-0 items-center justify-between gap-3 rounded-md border border-border bg-muted/40 p-3",
+                  getFileClassName?.(file, index)
+                )}
               >
                 <div className="flex min-w-0 items-center gap-2">
                   <FileText className="size-4 shrink-0 text-muted-foreground" />

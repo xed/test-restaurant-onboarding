@@ -4,6 +4,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown } from "lucide-react";
 import { ReactNode, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { ScrollToTopButton } from "@/components/onboarding/scroll-to-top-button";
 import {
   Card,
   CardContent,
@@ -21,10 +22,17 @@ type MenuGroup = {
   key: string;
   title: string;
   items: MenuItem[];
-  errorCount: number;
+  warningCount: number;
+};
+
+type WarningTarget = {
+  id: string;
+  groupKey: string;
 };
 
 const missingPlaceholder = "Not provided";
+const warningButtonClassName =
+  "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100 hover:text-amber-950";
 
 export function RestaurantSummary() {
   const {
@@ -36,11 +44,12 @@ export function RestaurantSummary() {
     menu: true
   });
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [activeWarningIndex, setActiveWarningIndex] = useState(0);
   const menuGroups = useMemo(
     () => groupMenuItems(menu.menu.items),
     [menu.menu.items]
   );
-  const menuErrorCount = useMemo(
+  const menuWarningCount = useMemo(
     () =>
       menu.menu.items.reduce(
         (count, item) => count + getMenuItemMissingFields(item).length,
@@ -48,10 +57,11 @@ export function RestaurantSummary() {
       ),
     [menu.menu.items]
   );
+  const warningTargets = useMemo(() => getWarningTargets(menuGroups), [menuGroups]);
 
   const legalReady = Boolean(legal.legal_name && (legal.siren || legal.siret));
   const bankingReady = Boolean(banking.account_holder && banking.iban && banking.bic);
-  const menuReady = menu.menu.items.length > 0 && menuErrorCount === 0;
+  const menuReady = menu.menu.items.length > 0 && menuWarningCount === 0;
 
   function toggleBlock(block: CollapsibleKey) {
     setOpenBlocks((current) => ({
@@ -65,6 +75,31 @@ export function RestaurantSummary() {
       ...current,
       [groupKey]: !(current[groupKey] ?? true)
     }));
+  }
+
+  function handleGoToNextMenuWarning() {
+    if (warningTargets.length === 0) {
+      return;
+    }
+
+    const targetIndex = activeWarningIndex % warningTargets.length;
+    const target = warningTargets[targetIndex];
+
+    setOpenBlocks((current) => ({
+      ...current,
+      menu: true
+    }));
+    setOpenGroups((current) => ({
+      ...current,
+      [target.groupKey]: true
+    }));
+    setActiveWarningIndex((targetIndex + 1) % warningTargets.length);
+
+    requestAnimationFrame(() => {
+      document
+        .getElementById(target.id)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
   }
 
   return (
@@ -109,7 +144,10 @@ export function RestaurantSummary() {
         title="Menu"
         description="Grouped menu items"
         ready={menuReady}
-        errorCount={menuErrorCount}
+        warningCount={menuWarningCount}
+        onGoToWarning={
+          menuWarningCount > 0 ? handleGoToNextMenuWarning : undefined
+        }
         isOpen={openBlocks.menu}
         onToggle={() => toggleBlock("menu")}
       >
@@ -135,8 +173,8 @@ export function RestaurantSummary() {
                         <h3 className="text-base font-semibold tracking-normal">
                           {group.title}
                         </h3>
-                        {group.errorCount > 0 ? (
-                          <ErrorCountBadge count={group.errorCount} />
+                        {group.warningCount > 0 ? (
+                          <WarningCountBadge count={group.warningCount} />
                         ) : null}
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -161,6 +199,7 @@ export function RestaurantSummary() {
                         return (
                           <div
                             key={item.id}
+                            id={getWarningTargetId(item.id)}
                             className={cn(
                               "grid gap-3 rounded-md border p-3 md:grid-cols-[1fr_1.5fr_120px]",
                               missingFields.length > 0
@@ -193,6 +232,8 @@ export function RestaurantSummary() {
           </div>
         )}
       </SummarySection>
+
+      <ScrollToTopButton />
     </div>
   );
 }
@@ -201,7 +242,8 @@ function SummarySection({
   title,
   description,
   ready,
-  errorCount = 0,
+  warningCount = 0,
+  onGoToWarning,
   isOpen,
   onToggle,
   children
@@ -209,7 +251,8 @@ function SummarySection({
   title: string;
   description: string;
   ready: boolean;
-  errorCount?: number;
+  warningCount?: number;
+  onGoToWarning?: () => void;
   isOpen: boolean;
   onToggle: () => void;
   children: ReactNode;
@@ -220,12 +263,23 @@ function SummarySection({
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <CardTitle>{title}</CardTitle>
-            {errorCount > 0 ? <ErrorCountBadge count={errorCount} /> : null}
+            {warningCount > 0 ? <WarningCountBadge count={warningCount} /> : null}
           </div>
           <CardDescription>{description}</CardDescription>
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge ready={ready} />
+          {onGoToWarning ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className={warningButtonClassName}
+              onClick={onGoToWarning}
+            >
+              Next warning ({warningCount})
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="outline"
@@ -268,10 +322,10 @@ function StatusBadge({ ready }: { ready: boolean }) {
   );
 }
 
-function ErrorCountBadge({ count }: { count: number }) {
+function WarningCountBadge({ count }: { count: number }) {
   return (
     <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-950">
-      {count} error{count === 1 ? "" : "s"}
+      {count} warning{count === 1 ? "" : "s"}
     </span>
   );
 }
@@ -313,12 +367,12 @@ function ReadOnlyField({
         )}
       >
         {label}
-        {isMissing ? " required" : ""}
+        {isMissing ? " Warning" : ""}
       </p>
       <p className="mt-2 text-sm text-foreground">
         {value.trim() || (
           <span className={isMissing ? "text-amber-900" : "text-muted-foreground"}>
-            {isMissing ? "Required" : missingPlaceholder}
+            {isMissing ? "Not Provided" : missingPlaceholder}
           </span>
         )}
       </p>
@@ -348,7 +402,7 @@ function groupMenuItems(items: MenuItem[]): MenuGroup[] {
     key: title,
     title,
     items: groupItems,
-    errorCount: groupItems.reduce(
+    warningCount: groupItems.reduce(
       (count, item) => count + getMenuItemMissingFields(item).length,
       0
     )
@@ -367,4 +421,19 @@ function getMenuItemMissingFields(item: MenuItem) {
   }
 
   return missingFields;
+}
+
+function getWarningTargets(groups: MenuGroup[]): WarningTarget[] {
+  return groups.flatMap((group) =>
+    group.items
+      .filter((item) => getMenuItemMissingFields(item).length > 0)
+      .map((item) => ({
+        id: getWarningTargetId(item.id),
+        groupKey: group.key
+      }))
+  );
+}
+
+function getWarningTargetId(itemId: string) {
+  return `menu-summary-warning-${itemId.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
 }

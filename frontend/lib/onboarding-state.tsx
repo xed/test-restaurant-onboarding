@@ -26,7 +26,9 @@ import type { OnboardingState, OnboardingStepId } from "@/lib/onboarding-storage
 
 type OnboardingStateContextValue = {
   state: OnboardingState;
+  isNavigationLocked: boolean;
   setCurrentStep: (step: OnboardingStepId) => void;
+  setNavigationLocked: (isLocked: boolean) => void;
   updateLegal: (legal: Partial<LegalParseResponse>) => void;
   replaceLegal: (legal: LegalParseResponse) => void;
   updateBanking: (banking: Partial<BankAccountParseResponse>) => void;
@@ -47,6 +49,7 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
     createInitialOnboardingState()
   );
   const [isHydrated, setIsHydrated] = useState(false);
+  const [isNavigationLocked, setNavigationLocked] = useState(false);
 
   useEffect(() => {
     setState(loadOnboardingState());
@@ -180,7 +183,9 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       state,
+      isNavigationLocked,
       setCurrentStep,
+      setNavigationLocked,
       updateLegal,
       replaceLegal,
       updateBanking,
@@ -193,7 +198,9 @@ export function OnboardingStateProvider({ children }: { children: ReactNode }) {
     }),
     [
       state,
+      isNavigationLocked,
       setCurrentStep,
+      setNavigationLocked,
       updateLegal,
       replaceLegal,
       updateBanking,
